@@ -1,190 +1,225 @@
+#include <cassert>
+#include <iomanip>
+#include <iostream>
 #include <string>
 #include <vector>
-#include <iostream>
 
-using namespace std;
-using ll = long long;
+namespace {
 
-struct long_int {
-  vector<ll> digits_;
-  bool is_negative;
+class LongInt {
+    using ll = long long;
+    using d_buf = std::vector<ll>;
+
+    d_buf digits_;
+    bool is_non_negative_;
+    static constexpr size_t base_ = 6ULL;  // 10^6 numeral system
+
+   public:
+    LongInt(){};
+    LongInt(long long);
+    LongInt(bool, d_buf);
+    LongInt(const std::string &);
+
+    bool is_zero() const;
+    bool is_one() const;
+    bool is_minus_one() const;
+    void print();
+    LongInt product(LongInt &);
+
+   private:
+    size_t up_to_power2(size_t);
+    ll str_to_ll(const std::string &, size_t, size_t) const;
+    d_buf long_mult(d_buf &, d_buf &) const;
+    d_buf karatsuba_mult(d_buf &, d_buf &) const;
+    void carry();
 };
 
+LongInt::LongInt(long long k) : is_non_negative_(k >= 0), digits_(1, k){};
 
-bool is_zero(const long_int &a) {
-  return a.digits_.size() == 1 && a.digits_[0] == 0;
-}
+LongInt::LongInt(bool sign, d_buf digits)
+    : is_non_negative_(sign), digits_(digits){};
 
+LongInt::LongInt(const std::string &s) {
+    assert(s.size() != 0);
 
-bool is_one(const long_int &a) {
-  return a.digits_.size() == 1 && a.digits_[0] == 1 && !a.is_negative;
-}
+    is_non_negative_ = (s[0] == '-');
+    size_t k = is_non_negative_;
 
-
-bool is_minus_one(const long_int &a) {
-  return is_one(a) && a.is_negative;
-}
-
-
-size_t up_to_power2(size_t n) {
-  size_t power2 = 1ULL;
-  while (6ULL * power2 < n) {
-    power2 <<= 1;
-  }
-  return power2;
-}
-
-
-inline ll str_to_ll(const string& s, size_t st, size_t end) {
-  // [st; end)
-  ll res = 0;
-  for (size_t i = st; i < end; ++i) {
-    res = 10 * res + s[i] - '0';
-  }
-  return res;
-}
-
-
-long_int long_int_from_str(const string &s) {
-  bool sign = false;  
-  size_t k = 0;
-  if (s[0]  == '-') {
-    ++k;
-    sign = true;
-  }
-
-  size_t number_size = up_to_power2(s.size() - k);
-  vector<ll> digits(number_size, 0);
-
-  size_t q = (s.size() - k) / 6ULL; 
-  size_t r = (s.size() - k) % 6ULL;
-  for (size_t i = 0; i < q; ++i) {
-    size_t ind = (q-i-1) * 6ULL + r + k;
-    digits[i] = str_to_ll(s, ind, ind + 6ULL);
-  }
-  digits[q] = str_to_ll(s, k, r+k);
-  return {digits, sign};
-}
-
-
-vector<ll> long_mult(vector<ll> &a, vector<ll> &b) {
-  size_t n = a.size();
-  vector<ll> c(2*n, 0);
-  for (size_t i = 0; i < n; ++i) {
-    for (size_t j = 0; j < n; ++j) {
-      c[i + j] += a[i] * b[j];
+    size_t number_size = up_to_power2(s.size() - k);
+    digits_.resize(number_size);
+    for (size_t i = 0; i < digits_.size(); ++i) {
+        digits_[i] = 0;
     }
-  }
-  return c;
+    size_t q = (s.size() - k) / base_;
+    size_t r = (s.size() - k) % base_;
+    for (size_t i = 0; i < q; ++i) {
+        size_t ind = (q - i - 1) * base_ + r + k;
+        digits_[i] = str_to_ll(s, ind, ind + base_);
+    }
+    digits_[q] = str_to_ll(s, k, r + k);
 }
 
-
-vector<ll> karatsuba_mult(vector<ll> &a, vector<ll> &b) {
-  size_t n = a.size();
-
-  if (n <= 32) {
-    return long_mult(a, b);
-  }
-
-  size_t k = n / 2;
-
-  vector<ll> a1(a.begin(), a.begin() + k);
-  vector<ll> a2(a.begin() + k, a.end());
-
-  vector<ll> b1(b.begin(), b.begin() + k);
-  vector<ll> b2(b.begin() + k, b.end());
-
-  auto left = karatsuba_mult(a1, b1);
-  auto right = karatsuba_mult(a2, b2);
-
-  for (size_t i = 0; i < k; ++i) {
-    a1[i] += a2[i];
-    b1[i] += b2[i];
-  }
-
-  auto middle = karatsuba_mult(a1, b1);
-  for (size_t i = 0; i < n; ++i) {
-    middle[i] -= left[i] + right[i];
-  }
-
-  vector<ll> c = std::move(left);
-  c.resize(2*n);
-  for (auto i = 0; i < n; ++i) {
-      c[k + i] += middle[i];
-      c[n + i] += right[i];
-  }
-  return c;
+size_t LongInt::up_to_power2(size_t n) {
+    assert(n > 0);
+    size_t power2 = 1;
+    while (base_ * power2 < n) {
+        power2 *= 2;  //<<= 1;
+    }
+    return power2;
 }
 
+bool LongInt::is_zero() const { return digits_.size() == 1 && digits_[0] == 0; }
 
-long_int product(long_int& a, long_int &b) {
-  if (is_zero(a) || is_zero(b)) {
-    vector<ll> c(1, 0);
-    return long_int{c, false};
-  }
+bool LongInt::is_one() const {
+    return !is_non_negative_ && digits_.size() == 1 && digits_[0] == 1;
+}
 
-  if (is_one(a)) { return b; } 
-  if (is_one(b)) { return a; }
+bool LongInt::is_minus_one() const { return is_one() && is_non_negative_; }
 
-  if (is_minus_one(a)) {
-    long_int c(b);
-    c.is_negative = !c.is_negative;
+LongInt::ll LongInt::str_to_ll(const std::string &s, size_t st,
+                               size_t end) const {
+    // [st; end)
+    assert(st < s.size() && end <= s.size() && st < end);
+    ll res = 0;
+    for (size_t i = st; i < end; ++i) {
+        res = 10 * res + s[i] - '0';
+    }
+    return res;
+}
+
+LongInt::d_buf LongInt::long_mult(d_buf &a, d_buf &b) const {
+    assert(a.size() != 0 && b.size() != 0);
+    size_t n = a.size();
+    d_buf c(2 * n, 0);
+    for (size_t i = 0; i < n; ++i) {
+        for (size_t j = 0; j < n; ++j) {
+            c[i + j] += a[i] * b[j];
+        }
+    }
     return c;
-  }
-
-  if (is_minus_one(b)) {
-    long_int c(a);
-    c.is_negative = !c.is_negative;
-    return c;
-  }
-
-  size_t max_size = std::max(a.digits_.size(), b.digits_.size());
-  a.digits_.resize(max_size);
-  b.digits_.resize(max_size);
-  bool sign = a.is_negative ^ b.is_negative;
-  vector<ll> c = karatsuba_mult(a.digits_, b.digits_);
-  return long_int{c, sign};
 }
 
+LongInt::d_buf LongInt::karatsuba_mult(d_buf &a, d_buf &b) const {
+    assert(a.size() != 0 && b.size() != 0);
 
-void carry(vector<ll> &v) {
-  ll carry = 0;
-  for (size_t i = 0; i < v.size(); ++i) {
-    carry += v[i];
-    v[i] = carry % 1000000;
-    carry /= 1000000;   
-  }
-  v.back() += carry;
+    size_t n = a.size();
+    if (n <= 32) {
+        return long_mult(a, b);
+    }
+
+    size_t k = n / 2;
+
+    d_buf a1(a.begin(), a.begin() + k);
+    d_buf a2(a.begin() + k, a.end());
+
+    d_buf b1(b.begin(), b.begin() + k);
+    d_buf b2(b.begin() + k, b.end());
+
+    auto left = karatsuba_mult(a1, b1);
+    auto right = karatsuba_mult(a2, b2);
+
+    for (size_t i = 0; i < k; ++i) {
+        a1[i] += a2[i];
+        b1[i] += b2[i];
+    }
+
+    auto middle = karatsuba_mult(a1, b1);
+    for (size_t i = 0; i < n; ++i) {
+        middle[i] -= left[i] + right[i];
+    }
+
+    left.resize(2 * n);
+    for (auto i = 0; i < n; ++i) {
+        left[k + i] += middle[i];
+        left[n + i] += right[i];
+    }
+    return left;
 }
 
+LongInt LongInt::product(LongInt &rhs) {
+    assert(digits_.size() && rhs.digits_.size() != 0);
 
-void print_long_int(long_int x) {
-  if (is_zero(x)) {
-    cout << 0;
-    return;
-  }
+    if (is_zero() || rhs.is_zero()) {
+        return LongInt{0};
+    }
 
-  carry(x.digits_);
-  auto it = x.digits_.rbegin();
-  for (; it != x.digits_.rend() && *it == 0; ++it);
+    if (is_one()) {
+        return rhs;
+    }
 
-  if (x.is_negative) { cout << '-'; }
-  cout << *it;
-  ++it;
-  for (; it != x.digits_.rend(); ++it) {
-    cout.fill('0');
-    cout.width(6);
-    cout << *it;
-  }
-  cout << endl;
+    if (rhs.is_one()) {
+        return *this;
+    }
+
+    if (is_minus_one()) {
+        LongInt c(rhs);
+        c.is_non_negative_ = !c.is_non_negative_;
+        return c;
+    }
+
+    if (rhs.is_minus_one()) {
+        LongInt c(*this);
+        c.is_non_negative_ = !c.is_non_negative_;
+        return c;
+    }
+
+    size_t max_size = std::max(digits_.size(), rhs.digits_.size());
+    digits_.resize(max_size);
+    rhs.digits_.resize(max_size);
+
+    d_buf c = karatsuba_mult(digits_, rhs.digits_);
+
+    LongInt r;
+    r.is_non_negative_ = is_non_negative_ ^ rhs.is_non_negative_;
+    r.digits_ = std::move(c);
+    return r;
 }
 
+void LongInt::carry() {
+    if (!digits_.empty()) {
+        ll carry = 0;
+        for (size_t i = 0; i < digits_.size(); ++i) {
+            carry += digits_[i];
+            digits_[i] = carry % 1000000;
+            carry /= 1000000;
+        }
+        digits_.back() += carry;
+    }
+}
+
+void LongInt::print() {
+    if (digits_.empty()) {
+        return;
+    }
+    if (is_zero()) {
+        std::cout << 0 << std::endl;
+        return;
+    }
+
+    carry();
+    auto it = digits_.rbegin();
+    for (; it != digits_.rend() && *it == 0; ++it)
+        ; /* nothing */
+
+    if (is_non_negative_) {
+        std::cout << '-';
+    }
+
+    std::cout << *it;
+    ++it;
+    for (; it != digits_.rend(); ++it) {
+        std::cout << *it << std::setw(6) << std::setfill('0');
+    }
+    std::cout << std::endl;
+}
+
+}  // end namespace
 
 int main() {
-  std::string s1, s2;
-  std::cin >> s1 >> s2;
-  long_int a = long_int_from_str(s1);
-  long_int b = long_int_from_str(s2);
-  long_int c = product(a, b);
-  print_long_int(c);
+    std::string s1, s2;
+    std::cin >> s1 >> s2;
+    LongInt a(s1);
+    LongInt b(s2);
+    LongInt c = a.product(b);
+    c.print();
 }
